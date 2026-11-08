@@ -55,13 +55,24 @@ export const getMusicUrl = async (id: number, isDownloaded: boolean = false) => 
     console.error('error', error);
   }
 
-  return await request.get('/song/url/v1', {
-    params: {
-      id,
-      level: settingStore.setData.musicQuality || 'higher',
-      encodeType: settingStore.setData.musicQuality == 'lossless' ? 'aac' : 'flac'
-    }
-  });
+  // 网易云风控（-460“检测到您的网络环境存在风险”）通常是瞬时的，同一首歌
+  // 重试往往就能拿到地址，因此做两次短退避重试，避免整首播放失败。
+  const fetchSongUrl = () =>
+    request.get('/song/url/v1', {
+      params: {
+        id,
+        level: settingStore.setData.musicQuality || 'higher',
+        encodeType: settingStore.setData.musicQuality == 'lossless' ? 'aac' : 'flac'
+      }
+    });
+
+  let res = await fetchSongUrl();
+  for (const delay of [600, 1500]) {
+    if (res?.data?.code !== -460) break;
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    res = await fetchSongUrl();
+  }
+  return res;
 };
 
 // 获取歌曲详情
