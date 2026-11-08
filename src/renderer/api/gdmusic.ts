@@ -1,6 +1,6 @@
-import axios from 'axios';
-
 import type { MusicSourceType } from '@/types/music';
+
+import { gdGuardGet, gdGuardGetRaw } from './gdGuard';
 
 /**
  * GD音乐台解析服务
@@ -245,10 +245,10 @@ async function searchAndGetUrl(
   const searchUrl = `${baseUrl}?types=search&source=${source}&name=${encodeURIComponent(searchQuery)}&count=5&pages=1`;
   console.log(`GD音乐台尝试音源 ${source} 搜索:`, searchUrl);
 
-  const searchResponse = await axios.get(searchUrl, { timeout: 5000 });
+  const searchResponse = await gdGuardGetRaw(searchUrl, 5000);
 
-  if (searchResponse.data && Array.isArray(searchResponse.data) && searchResponse.data.length > 0) {
-    const matchedResult = pickBestCandidate(searchResponse.data as GDSearchItem[], expected);
+  if (Array.isArray(searchResponse) && searchResponse.length > 0) {
+    const matchedResult = pickBestCandidate(searchResponse as GDSearchItem[], expected);
     if (!matchedResult) {
       console.log(`GD音乐台 ${source} 搜索结果与原曲不匹配，已拒绝（避免货不对版）`);
       return null;
@@ -261,13 +261,13 @@ async function searchAndGetUrl(
     const songUrl = `${baseUrl}?types=url&source=${trackSource}&id=${trackId}&br=${quality}`;
     console.log(`GD音乐台尝试获取 ${trackSource} 歌曲URL:`, songUrl);
 
-    const songResponse = await axios.get(songUrl, { timeout: 5000 });
+    const songResult = await gdGuardGet(songUrl, 5000);
 
-    if (songResponse.data && songResponse.data.url) {
+    if (songResult.ok && songResult.url) {
       return {
-        url: songResponse.data.url,
-        br: songResponse.data.br,
-        size: songResponse.data.size || 0,
+        url: songResult.url,
+        br: songResult.br != null ? String(songResult.br) : '',
+        size: songResult.size || 0,
         source: trackSource
       };
     } else {

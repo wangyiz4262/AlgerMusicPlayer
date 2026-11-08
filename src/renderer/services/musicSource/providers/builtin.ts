@@ -4,12 +4,14 @@
  * 每个内置源只做三件事：声明身份（key/name/available）、把旧实现的结果
  * 归一成 MediaSource、保留原有的超时与验证语义。
  */
+import { gdGuardGet } from '@/api/gdGuard';
 import { parseFromGDMusic } from '@/api/gdmusic';
 import { getMusicUrl } from '@/api/music';
 import { parseFromCustomApi } from '@/api/parseFromCustomApi';
 import { useSettingsStore } from '@/store';
 import type { SongResult } from '@/types/music';
 import type { PluginMediaSource } from '@/types/musicSourcePlugin';
+import { isElectron } from '@/utils';
 
 import { validatePluginHttpUrl } from '../../../../shared/musicSourcePlugin';
 import type { MusicSourceProvider } from '../types';
@@ -120,12 +122,23 @@ const createUnblockProvider = (
   builtin: true,
   available: true,
   resolve: async (song: SongResult, _quality: string) => {
-    const result = await Promise.race([
-      window.api.unblockMusic(song.id as number, { ...song }, [platform.key]),
-      new Promise((resolve) => setTimeout(() => resolve(null), UNBLOCK_TIMEOUT))
-    ]);
-    const url = extractLegacyUrl(result);
-    return url ? toMediaSource(url) : null;
+    // Electron 走主进程 unblock 桥；Web/PWA 无桥，直接按 NetEase ID 请求
+    // GD 上游的 url 端点（CORS 放开、与 unblock pyncmd 走同一上游）。
+    if (isElectron) {
+      const result = await Promise.race([
+        window.api.unblockMusic(song.id as number, { ...song }, [platform.key]),
+        new Promise((resolve) => setTimeout(() => resolve(null), UNBLOCK_TIMEOUT))
+      ]);
+      const url = extractLegacyUrl(result);
+      return url ? toMediaSource(url) : null;
+    }
+    const base = 'https://music-api.gdstudio.xyz/api.php';
+    const res = await gdGuardGet(
+      `${base}?types=url&source=netease&id=${encodeURIComponent(song.id as number)}&br=320`,
+      8000
+    );
+    if (!res.ok || !res.url) return null;
+    return toMediaSource(res.url, { br: res.br });
   }
 });
 
