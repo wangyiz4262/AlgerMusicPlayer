@@ -1,0 +1,12 @@
+# Netease Cloud Music API backend for AlgerMusicPlayer (web deployment)
+# Frontend calls this at music-api.minipc.wangyizhe.com -> :3000
+FROM node:22-alpine
+
+# The exact fork the project depends on (see package.json deps).
+RUN npm install -g netease-cloud-music-api-alger@4.32.0
+
+EXPOSE 3000
+ENV PORT=3000
+
+# The package's bin entry (app.js), starts the NeteaseCloudMusicApi server.
+ENTRYPOINT ["netease-cloud-music-api-alger"]

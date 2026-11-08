@@ -1,0 +1,26 @@
+# AlgerMusicPlayer - Netease Cloud Music API backend.
+# The static frontend is served by caddy (Caddyfile music.minipc.wangyizhe.com),
+# which reverse-proxies music-api.minipc.wangyizhe.com to this container.
+services:
+  ncm-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: ncm-api
+    restart: unless-stopped
+    # Internal only: exposed only to the docker network, not published to host ports.
+    expose:
+      - "3000"
+    networks:
+      custom-bridge:
+        ipv4_address: 10.0.0.12
+    # Keep the API's anonymous token / session data across restarts.
+    volumes:
+      - ncm-api-tmp:/tmp
+
+networks:
+  custom-bridge:
+    external: true
+
+volumes:
+  ncm-api-tmp:
