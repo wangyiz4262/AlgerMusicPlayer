@@ -141,11 +141,27 @@ export const resolveSong = async (
 
   // Web 端没有主进程桥：插件沙箱、unblock 代理、Range 校验、pluginmedia:// 包装
   // 都依赖 Electron。原先这里是非 Electron 直接 return null，导致 Web/PWA 解析不出
-  // 任何播放地址（整个播放链路失效）。Web 只能走纯 HTTP 的内置网易云源。
+  // 任何播放地址（整个播放链路失效）。Web 只能走纯 HTTP 的内置源 —— 网易云官方、
+  // GD音乐台、自定义 API 都是纯 axios 调用，**不需要主进程桥**，可以保留作为网易云
+  // 命中失败时的备选音源；而 unblock 平台（window.api.unblockMusic）、插件源
+  // （沙箱 Worker + lxMusicHttp 代理）依赖主进程桥，Web 上必须剔除。
   let candidates = orderedProviders(sourceKeys);
   if (!isElectron) {
+    // Web 只能走纯 HTTP 的内置源：网易云官方、GD音乐台、自定义 API（都是纯 axios 调用，
+    // 不需要主进程桥），保留作为网易云命中失败时的备选音源；而 unblock 平台
+    // （window.api.unblockMusic）、插件源（沙箱 Worker + lxMusicHttp 代理）依赖主进程桥，
+    // Web 上必须剔除。available 判定与桌面一致（如自定义 API 未导入由 customApiProvider
+    // 自身返回 null 让链继续）。
+    const WEB_SAFE_KEYS = new Set(['netease', 'gdmusic', 'customApi']);
+    candidates = candidates.filter((p) => WEB_SAFE_KEYS.has(p.key) && p.available !== false);
+    // 官方网易云源必须始终参与：enabledMusicSources 默认只含旧 unblock key（migu/kugou/
+    // pyncmd）——不含 netease，按启用集合过滤会把它整个丢掉，使 Web 退回 #785 之前
+    // 「解析不出任何地址」的状态。这里在 WEB_SAFE 过滤后把官方源补回链头，保持 #785
+    // 的语义：官方优先，GD/自定义API 仅作命中失败时的备选。
     const netease = findProvider('netease');
-    candidates = netease && netease.available !== false ? [netease] : [];
+    if (netease && netease.available !== false && !candidates.some((p) => p.key === 'netease')) {
+      candidates = [netease, ...candidates];
+    }
   }
   const attempts: ResolveAttempt[] = [];
   const chainStart = Date.now();
