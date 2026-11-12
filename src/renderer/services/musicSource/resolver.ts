@@ -5,6 +5,7 @@
  * 失败缓存跳过，统一校验与 API 端点二次解析，返回 attempts 归因。
  * 取代旧的「getSongUrl 内联降级链 + MusicParser 策略工厂」双轨编排。
  */
+import { gdGuardCooldownRemaining } from '@/api/gdGuard';
 import { SongSourceConfigManager } from '@/services/SongSourceConfigManager';
 import { useSettingsStore } from '@/store';
 import type { SongResult } from '@/types/music';
@@ -18,6 +19,9 @@ import type { ResolveAttempt, ResolveSongResult } from './types';
 
 const STAGE_BUDGET_MS = 15_000;
 const CHAIN_BUDGET_MS = 30_000;
+
+/** 走 GD 上游闸的音源：命中失败且处于 503 冷却时值得等冷却后重试一次。 */
+const GD_BACKED_KEYS = new Set(['gdmusic', 'pyncmd']);
 
 export type ResolveSongOptions = {
   /** 歌曲级音源覆盖（缺省取全局启用集合） */
@@ -189,10 +193,23 @@ export const resolveSong = async (
     }
 
     try {
-      const raw = await withTimeout(
+      let raw = await withTimeout(
         provider.resolve(song, quality, { isDownload: options.isDownload }),
         STAGE_BUDGET_MS
       );
+      // GD 系音源（gdmusic/pyncmd）遇到上游 503 会进入 ~1.8s 全局冷却，而这里
+      // 一旦判失败就会把该源写入 1 分钟失败缓存；不先重试的话，一次瞬时 503 就
+      // 会让整首歌直接报错。冷却较短，等它结束后就地重试一次即可拿到地址。
+      if (!raw && GD_BACKED_KEYS.has(provider.key)) {
+        const cooldownLeft = gdGuardCooldownRemaining();
+        if (cooldownLeft > 0 && Date.now() - stageStart < STAGE_BUDGET_MS) {
+          await new Promise((resolve) => setTimeout(resolve, Math.min(cooldownLeft + 250, 3000)));
+          raw = await withTimeout(
+            provider.resolve(song, quality, { isDownload: options.isDownload }),
+            STAGE_BUDGET_MS
+          );
+        }
+      }
       if (!raw) {
         attempts.push({
           providerKey: provider.key,

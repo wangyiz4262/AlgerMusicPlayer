@@ -29,6 +29,10 @@ let failedStreak = 0;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** 距 503 冷却结束还有多少毫秒（0 表示当前不在冷却中）。
+ *  供解析器判断：这次未命中是不是「上游刚 503、马上重试就能拿到」的瞬时失败。 */
+export const gdGuardCooldownRemaining = (): number => Math.max(0, cooldownUntil - Date.now());
+
 /** 等上游可用（并发闸 + 间隔闸 + 503 冷却） */
 const acquire = async (): Promise<void> => {
   for (;;) {
